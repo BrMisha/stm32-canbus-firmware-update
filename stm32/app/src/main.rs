@@ -1,26 +1,13 @@
-//#![deny(unsafe_code)]
 //#![deny(warnings)]
 #![no_main]
 #![cfg_attr(not(test), no_std)]
 
-use rtic::app;
-
 use core::cmp::Ordering;
 use core::fmt::Write;
-use core::panic::PanicInfo;
-use canbus_common;
-
 use cortex_m_semihosting::hprintln;
-
 use heapless::binary_heap::{BinaryHeap, Max};
 use panic_halt as _;
-/*
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    loop {}
-}
-*/
-
+use rtic::app;
 use stm32f1xx_hal::pac::Interrupt;
 use stm32f1xx_hal::{
     can::Can,
@@ -36,7 +23,8 @@ use systick_monotonic::Systick;
 
 use num_traits::cast::ToPrimitive;
 
-const DEVICE_SERIAL: canbus_common::frames::serial::Serial = canbus_common::frames::serial::Serial([1, 2, 3, 4, 5]);
+const DEVICE_SERIAL: canbus_common::frames::serial::Serial =
+    canbus_common::frames::serial::Serial([1, 2, 3, 4, 5]);
 const PAGE_SIZE: usize = 1024;
 const NEW_FW_BEGIN: usize = PAGE_SIZE * 64;
 
@@ -74,7 +62,7 @@ impl PriorityFrame {
                 None => canbus_common::frames::ParserType::Remote(f.dlc()),
             },
         )
-        .map_err(|e| ())?;
+        .map_err(|_e| ())?;
 
         Ok(PriorityFrame(res))
     }
@@ -327,12 +315,13 @@ mod app {
                 .pending_fw_version_required
                 .lock(|pending_fw_version_required| *pending_fw_version_required)
             {
-                let mut begin = NEW_FW_BEGIN as u32;
-                let flash_size = u32::from_be_bytes(*unsafe { &*(begin as *const [u8; 4]) });   // without len and crc
-                //let flash_size = unsafe { core::slice::from_raw_parts(&*(ptri as *const u8), 4) };
+                let begin = NEW_FW_BEGIN as u32;
+                let flash_size = u32::from_be_bytes(*unsafe { &*(begin as *const [u8; 4]) }); // without len and crc
+                                                                                              //let flash_size = unsafe { core::slice::from_raw_parts(&*(ptri as *const u8), 4) };
 
-                let version =
-                    canbus_common::frames::version::Version::from(*unsafe { &*((begin + 4) as *const [u8; 8]) });
+                let version = canbus_common::frames::version::Version::from(*unsafe {
+                    &*((begin + 4) as *const [u8; 8])
+                });
 
                 hprintln!("flash size {}", flash_size);
                 // len+version+flash
@@ -351,15 +340,15 @@ mod app {
                 cx.shared.can_tx_queue.lock(|can_tx_queue| {
                     enqueue_frame(
                         can_tx_queue,
-                        PriorityFrame(canbus_common::frames::Frame::PendingFirmwareVersion(Type::Data(
-                            match crc == crc_calculated {
+                        PriorityFrame(canbus_common::frames::Frame::PendingFirmwareVersion(
+                            Type::Data(match crc == crc_calculated {
                                 true => Some(version),
                                 false => {
                                     hprintln!("wrong crc {} {}", crc, crc_calculated);
                                     None
-                                },
-                            },
-                        ))),
+                                }
+                            }),
+                        )),
                     );
                 });
 
@@ -417,7 +406,7 @@ mod app {
                             // Put the low priority frame back in the transmit queue.
                             tx_queue.pop();
 
-                            let f = PriorityFrame::from_bxcan_frame(&pending_frame).unwrap();
+                            let f = PriorityFrame::from_bxcan_frame(pending_frame).unwrap();
                             enqueue_frame(tx_queue, f);
                         }
                     },
@@ -493,7 +482,7 @@ mod app {
                                 cx.shared.fw_upload.lock(|fw_upload| {
                                     match fw_upload.data.put_part(value.data, value.position()) {
                                         Ok(_) => {
-                                            if fw_upload.data.page_is_ready() && fw_upload.paused == false {
+                                            if fw_upload.data.page_is_ready() && !fw_upload.paused {
                                                 fw_upload.paused = true;
 
                                                 can_tx_queue.lock(|can_tx_queue| {
@@ -505,7 +494,7 @@ mod app {
                                             }
                                         }
                                         Err(PutPartError::NotEnoughSpace) => {
-                                            if fw_upload.paused == false {
+                                            if !fw_upload.paused {
                                                 fw_upload.paused = true;
 
                                                 can_tx_queue.lock(|can_tx_queue| {
@@ -531,7 +520,7 @@ mod app {
                             }
                             canbus_common::frames::Frame::FirmwareUploadFinished if id_is_ok => {
                                 cx.shared.fw_upload.lock(|fw_upload| {
-                                    while fw_upload.data.page_is_ready() == false {
+                                    while !fw_upload.data.page_is_ready() {
                                         fw_upload
                                             .data
                                             .put_part(
@@ -548,9 +537,11 @@ mod app {
                                     can_tx_queue.lock(|can_tx_queue| {
                                         enqueue_frame(
                                             can_tx_queue,
-                                            PriorityFrame(canbus_common::frames::Frame::FirmwareUploadPause(
-                                                fw_upload.paused,
-                                            )),
+                                            PriorityFrame(
+                                                canbus_common::frames::Frame::FirmwareUploadPause(
+                                                    fw_upload.paused,
+                                                ),
+                                            ),
                                         );
                                     });
                                 });
@@ -567,7 +558,7 @@ mod app {
                     //hprintln!("e WouldBlock");
                     break;
                 }
-                Err(nb::Error::Other(e)) => {
+                Err(nb::Error::Other(_e)) => {
                     //hprintln!("rx overrun");
                     cx.shared.serial.lock(|serial| {
                         write!(serial, "rx overrun").unwrap();
