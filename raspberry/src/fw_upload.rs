@@ -1,25 +1,23 @@
+use crate::can_bus;
 use canbus_common::frame_id::SubId;
 use futures_util::{StreamExt, TryFutureExt};
 use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::{select};
-use tokio::sync::{Mutex, watch};
-
-use tokio_socketcan::CANSocket;
-use crate::{can_bus, Error};
+use tokio::select;
+use tokio::sync::{watch, Mutex};
 
 pub async fn upload(can: &can_bus::CanBus, sub_id: SubId, file: &[u8]) {
     let part: Arc<Mutex<usize>> = Default::default();
-    let pause= watch::channel(false).0;
+    let pause = watch::channel(false).0;
     let mut pause_sub = pause.subscribe();
 
-    let res = select! {
+    let _res = select! {
         res = {
-            upload_parts(sub_id, file, &can, part.clone(), pause.subscribe())
+            upload_parts(sub_id, file, can, part.clone(), pause.subscribe())
         } => res,
         res = {
-            poll_rx(sub_id.clone(), can.subscribe(), part.clone(), pause)
+            poll_rx(sub_id, can.subscribe(), part.clone(), pause)
         } => res
     };
 
@@ -44,7 +42,6 @@ async fn poll_rx(
     part: Arc<Mutex<usize>>,
     pause: watch::Sender<bool>,
 ) -> Result<(), crate::Error> {
-
     while let Ok(frame) = socket.recv().await {
         if id == frame.1 {
             match frame.0 {
@@ -85,13 +82,13 @@ async fn upload_parts(
             false => {
                 // get part
                 let mut part = part.lock().await;
-                if *part >= file_len / 5 + 1 {
+                if *part > file_len / 5 {
                     println!("{} {}", *part, file_len / 5 + 1);
                     return Ok(());
                 }
 
                 let offset = *part * 5;
-                let mut data = {
+                let data = {
                     if offset + 5 < file_len {
                         &file[offset..offset + 5]
                     } else {
@@ -99,7 +96,7 @@ async fn upload_parts(
                     }
                 };
 
-                if data.len() == 0 {
+                if data.is_empty() {
                     break Ok(());
                 }
 
@@ -108,9 +105,12 @@ async fn upload_parts(
                         &canbus_common::frames::Frame::FirmwareUploadPart(
                             canbus_common::frames::firmware::UploadPart::new(*part, {
                                 let mut buffer = [0u8; 5];
-                                data.iter().zip(buffer.iter_mut()).for_each(|v| { *v.1 = *v.0; });
+                                data.iter().zip(buffer.iter_mut()).for_each(|v| {
+                                    *v.1 = *v.0;
+                                });
                                 buffer
-                            }).unwrap(),
+                            })
+                            .unwrap(),
                         ),
                         id,
                     )
@@ -138,15 +138,16 @@ async fn upload_parts(
                                 err.kind(),
                                 err.type_id()
                             );
-                            return Err(crate::Error::Io(err))
-                        },
+                            return Err(crate::Error::Io(err));
+                        }
                     },
                 }
 
                 tokio::time::sleep(Duration::from_millis(match *part % 2 {
                     0 => 50,
-                    _ => 10
-                })).await
+                    _ => 10,
+                }))
+                .await
             }
         }
     }
