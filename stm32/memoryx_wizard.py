@@ -1,5 +1,5 @@
-import os
 import sys
+import json
 
 flash_start = int(0x08000000)
 flash_size = int(128 * 1024)
@@ -20,12 +20,19 @@ data1 = int(app1 + app_size)
 app2 = int(data1 + data_size)
 data2 = int(app2 + app_size)
 
-print("app_size", hex(app_size))
-print("bootloader data", hex(bootloader_data))
-print("app1", hex(app1))
-print("data1", hex(data1))
-print("app2", hex(app2))
-print("data2", hex(data2))
+
+def print_addresses():
+    print("app_size", hex(app_size))
+    print("bootloader data", hex(bootloader_data))
+    print("app1", hex(app1))
+    print("data1", hex(data1))
+    print("app2", hex(app2))
+    print("data2", hex(data2))
+    pass
+
+
+def get_addresses():
+    return (bootloader_data, app1)
 
 
 def generate(app_addr):
@@ -43,8 +50,7 @@ def generate(app_addr):
     pass
 
 
-if len(sys.argv) == 2:
-    app = int(sys.argv[1])
+def create_memoryx(app):
     print("App: ", app)
 
     if app == 1:
