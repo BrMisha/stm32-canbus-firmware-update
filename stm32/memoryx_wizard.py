@@ -27,6 +27,7 @@ print("data1", hex(data1))
 print("app2", hex(app2))
 print("data2", hex(data2))
 
+
 def generate(app_addr):
     txt = "MEMORY\n\
     {{\n\
@@ -35,32 +36,22 @@ def generate(app_addr):
     }}\n".format(app_addr, int(app_size / 1024))
     print(txt)
 
-    with open('memory.x', 'w') as f:
-        f.write(txt)
-
-    os.system("cd app && cargo clean && cargo +nightly build --release")
-
-    os.remove('memory.x')
+    f = open('memory.x', 'w')
+    f.write(txt)
+    f.close()
 
     pass
 
 
 if len(sys.argv) == 2:
-    out_path = os.path.abspath(sys.argv[1])
-    print("Output path: ", out_path)
+    app = int(sys.argv[1])
+    print("App: ", app)
 
-    os.rename('memory.x', 'memory.x_')
-
-    try:
-        objcopy = "cd app && cargo objcopy --bin app --release -- -O binary {}"
+    if app == 1:
         generate(app1)
-        os.system(objcopy.format(str(out_path + "/app1.bin")))
-
-        #generate(app2)
-        #os.system(objcopy.format(str(out_path + "/app2.bin")))
-    except Exception as e:
-        print(e)
-
-    os.rename('memory.x_', 'memory.x')
+    elif app == 2:
+        generate(app2)
+    else:
+        print("wrong app number")
 
     pass
