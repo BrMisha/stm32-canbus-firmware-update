@@ -54,8 +54,8 @@ fn main() -> ! {
     );
 
     serial.bwrite_all(b"...Bootloader stated...\r\n");
-
-    let part_number = *unsafe { &*(0x8001800 as *const u8) };
+    serial.bwrite_all(b"Jump\r\n");
+    jump_to_main(0x8002000);
 
     fn jump_to_main(address: u32) {
         unsafe {
@@ -66,22 +66,6 @@ fn main() -> ! {
             p.SCB.vtor.write(address as u32);
             cortex_m::asm::bootload(address as *const u32);
         }
-    }
-
-    match part_number {
-        1 => {
-            serial.bwrite_all(b"Jump to 1...\r\n");
-            jump_to_main(0x8001c00);
-            serial.bwrite_all(b"Jump\r\n");
-        },
-        2 => {
-            serial.bwrite_all(b"Jump to 2...\r\n");
-            jump_to_main(0x8010e00);
-            serial.bwrite_all(b"Jump\r\n");
-        },
-        _ => {
-            serial.bwrite_all(b"!!!Address is undefined!!!\r\n");
-        },
     }
 
     loop {}

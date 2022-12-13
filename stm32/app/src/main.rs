@@ -26,18 +26,7 @@ use num_traits::cast::ToPrimitive;
 const DEVICE_SERIAL: canbus_common::frames::serial::Serial =
     canbus_common::frames::serial::Serial([1, 2, 3, 4, 5]);
 const PAGE_SIZE: usize = 1024;
-const NEW_FW_BEGIN: usize = PAGE_SIZE * 64;
-
-#[allow(dead_code)]
-#[link_section = ".fw_version"]
-#[used]
-static STR: [u8; 8] = *b"12345678";
-/*const FW_VERION: canbus_common::frames::version::Version = canbus_common::frames::version::Version{
-    major: 1,
-    minor: 2,
-    path: 3,
-    build: 4,
-};*/
+const NEW_FW_BEGIN: usize = (8 + 60) * 1024;
 
 #[derive(Debug)]
 pub struct PriorityFrame(pub canbus_common::frames::Frame);
