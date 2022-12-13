@@ -8,8 +8,10 @@ flash_size = int(128 * 1024)
 bootloader (5K)
 device_descriptor (1K)
 bootloader_data (1K)
+app_header1
 app1
 data1 (1K)
+app_header2
 app2
 data2 (1K)
 '''
@@ -17,6 +19,7 @@ data2 (1K)
 bootloader_size = int(5 * 1024)
 device_descriptor_size = int(1024)
 bootloader_data_size = int(1024)
+app_header_size = int(4)   # len + version
 data_size = int(1024)
 
 device_descriptor = flash_start + bootloader_size
@@ -31,6 +34,7 @@ app2 = int(data1 + data_size)
 data2 = int(app2 + app_size)
 
 def print_addresses():
+    print("app_header_size", hex(app_header_size))
     print("app_size", hex(app_size))
     print("device descriptor", hex(device_descriptor))
     print("bootloader data", hex(bootloader_data))
@@ -49,7 +53,7 @@ def generate(app_addr):
     {{\n\
         FLASH : ORIGIN = 0x{:X}, LENGTH = {}K\n\
         RAM : ORIGIN = 0x20000000, LENGTH = 20K\n\
-    }}\n".format(app_addr, int(app_size / 1024))
+    }}\n".format(app_addr+app_header_size, int(app_size / 1024))
     print(txt)
 
     f = open('memory.x', 'w')

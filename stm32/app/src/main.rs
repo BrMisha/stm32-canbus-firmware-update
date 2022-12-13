@@ -28,6 +28,17 @@ const DEVICE_SERIAL: canbus_common::frames::serial::Serial =
 const PAGE_SIZE: usize = 1024;
 const NEW_FW_BEGIN: usize = PAGE_SIZE * 64;
 
+#[allow(dead_code)]
+#[link_section = ".fw_version"]
+#[used]
+static STR: [u8; 8] = *b"12345678";
+/*const FW_VERION: canbus_common::frames::version::Version = canbus_common::frames::version::Version{
+    major: 1,
+    minor: 2,
+    path: 3,
+    build: 4,
+};*/
+
 #[derive(Debug)]
 pub struct PriorityFrame(pub canbus_common::frames::Frame);
 
@@ -262,6 +273,15 @@ mod app {
 
     #[idle(shared = [can_tx_queue, fw_upload, pending_fw_version_required, serial], local = [flash])]
     fn idle(mut cx: idle::Context) -> ! {
+        cx.shared.can_tx_queue.lock(|can_tx_queue| {
+            enqueue_frame(
+                can_tx_queue,
+                PriorityFrame(canbus_common::frames::Frame::Serial(
+                    Type::Data(DEVICE_SERIAL),
+                )),
+            );
+        });
+
         loop {
             cx.shared.fw_upload.lock(|fw_upload: &mut FwUpload| {
                 if let Some(page) = fw_upload.data.get_page() {
