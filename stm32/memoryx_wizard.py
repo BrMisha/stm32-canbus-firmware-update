@@ -3,26 +3,36 @@ import json
 
 flash_start = int(0x08000000)
 flash_size = int(128 * 1024)
-bootloader_size = int(5 * 1024)
 
+'''
+bootloader (5K)
+device_descriptor (1K)
+bootloader_data (1K)
+app1
+data1 (1K)
+app2
+data2 (1K)
+'''
+
+bootloader_size = int(5 * 1024)
 device_descriptor_size = int(1024)
 bootloader_data_size = int(1024)
 data_size = int(1024)
 
 device_descriptor = flash_start + bootloader_size
-bootloader_data = device_descriptor_size + flash_start + 1024
+bootloader_data = device_descriptor + device_descriptor_size
 
 app_size = int((flash_size - bootloader_size - device_descriptor_size - bootloader_data_size - (data_size * 2)) / 2)
 
-app1 = int(flash_start + bootloader_size + bootloader_data_size)
+app1 = int(bootloader_data + bootloader_data_size)
 data1 = int(app1 + app_size)
 
 app2 = int(data1 + data_size)
 data2 = int(app2 + app_size)
 
-
 def print_addresses():
     print("app_size", hex(app_size))
+    print("device descriptor", hex(device_descriptor))
     print("bootloader data", hex(bootloader_data))
     print("app1", hex(app1))
     print("data1", hex(data1))
@@ -32,8 +42,7 @@ def print_addresses():
 
 
 def get_addresses():
-    return (bootloader_data, app1)
-
+    return (flash_start, device_descriptor, bootloader_data, app1)
 
 def generate(app_addr):
     txt = "MEMORY\n\
@@ -48,7 +57,6 @@ def generate(app_addr):
     f.close()
 
     pass
-
 
 def create_memoryx(app):
     print("App: ", app)

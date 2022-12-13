@@ -4,7 +4,7 @@
 
 use core::cmp::Ordering;
 use core::fmt::Write;
-use cortex_m_semihosting::hprintln;
+//use cortex_m_semihosting::hprintln;
 use heapless::binary_heap::{BinaryHeap, Max};
 use panic_halt as _;
 use rtic::app;
@@ -97,7 +97,7 @@ impl Eq for PriorityFrame {}
 
 fn enqueue_frame(queue: &mut BinaryHeap<PriorityFrame, Max, 16>, frame: PriorityFrame) {
     if let Err(e) = queue.push(frame) {
-        hprintln!("push err {:?}", e);
+        //hprintln!("push err {:?}", e);
         return;
     }
     rtic::pend(Interrupt::USB_HP_CAN_TX);
@@ -159,8 +159,6 @@ mod app {
         let mut flash = ctx.device.FLASH.constrain();
         let rcc = ctx.device.RCC.constrain();
 
-        hprintln!("33333");
-
         // Freeze the configuration of all the clocks in the system and store the frozen frequencies in
         // `clocks`
         //let clocks = rcc.cfgr.freeze(&mut flash.acr);
@@ -183,7 +181,7 @@ mod app {
         //let mut delay = delay::Delay::new(ctx.core.SYST, 36_000_000);
 
         let mut gpioa = ctx.device.GPIOA.split();
-        let led = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
+        let mut led = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
         let led2 = gpioa.pa3.into_push_pull_output(&mut gpioa.crl);
 
         // USART1
@@ -195,7 +193,7 @@ mod app {
             ctx.device.USART1,
             (tx, rx),
             &mut afio.mapr,
-            Config::default().baudrate(460800.bps()),
+            Config::default().baudrate(115200.bps()),
             clocks,
         );
         write!(serial, "stadte: {:?}\r\n", 1).unwrap();
@@ -262,13 +260,13 @@ mod app {
         )
     }
 
-    #[idle(shared = [can_tx_queue, fw_upload, pending_fw_version_required], local = [flash])]
+    #[idle(shared = [can_tx_queue, fw_upload, pending_fw_version_required, serial], local = [flash])]
     fn idle(mut cx: idle::Context) -> ! {
         loop {
             cx.shared.fw_upload.lock(|fw_upload: &mut FwUpload| {
                 if let Some(page) = fw_upload.data.get_page() {
                     let page_p = (NEW_FW_BEGIN + (PAGE_SIZE * page.1)) as u32;
-                    hprintln!("page {:?} {:?}", page.1, page_p);
+                    //hprintln!("page {:?} {:?}", page.1, page_p);
 
                     let mut writer: stm32f1xx_hal::flash::FlashWriter = cx.local.flash.writer(
                         stm32f1xx_hal::flash::SectorSize::Sz1K,
@@ -277,11 +275,15 @@ mod app {
                     //writer.change_verification(false);
                     //let r = writer.erase(page_p, PAGE_SIZE);
                     if let Err(e) = writer.page_erase(page_p) {
-                        hprintln!("erase {:?}", e);
+                        cx.shared.serial.lock(|serial| {
+                            write!(serial, "erase {:?}\r\n", e).unwrap();
+                        });
                     }
 
                     if let Err(e) = writer.write(page_p, page.0) {
-                        hprintln!("write {:?}", e);
+                        cx.shared.serial.lock(|serial| {
+                            write!(serial, "write {:?}\r\n", e).unwrap();
+                        });
                     }
 
                     //hprintln!("read {:?} ", writer.read(page_p, 4).unwrap());
@@ -293,7 +295,10 @@ mod app {
                 if fw_upload.finished {
                     fw_upload.finished = false;
                     fw_upload.data.reset();
-                    hprintln!("finished");
+                    //hprintln!("finished");
+                    cx.shared.serial.lock(|serial| {
+                        write!(serial, "finished\r\n").unwrap();
+                    });
                 }
 
                 if fw_upload.paused {
@@ -323,7 +328,10 @@ mod app {
                     &*((begin + 4) as *const [u8; 8])
                 });
 
-                hprintln!("flash size {}", flash_size);
+                //hprintln!("flash size {}", flash_size);
+                cx.shared.serial.lock(|serial| {
+                    write!(serial, "flash size {}\r\n", flash_size).unwrap();
+                });
                 // len+version+flash
                 let flash_data = unsafe {
                     core::slice::from_raw_parts(&*(begin as *const u8), (flash_size + 4) as usize)
@@ -344,7 +352,10 @@ mod app {
                             Type::Data(match crc == crc_calculated {
                                 true => Some(version),
                                 false => {
-                                    hprintln!("wrong crc {} {}", crc, crc_calculated);
+                                    //hprintln!("wrong crc {} {}", crc, crc_calculated);
+                                    cx.shared.serial.lock(|serial| {
+                                        write!(serial, "wrong crc {} {}\r\n", crc, crc_calculated).unwrap();
+                                    });
                                     None
                                 }
                             }),
@@ -369,6 +380,10 @@ mod app {
         let tx = cx.local.can_tx;
         let mut tx_queue = cx.shared.can_tx_queue;
         //let _tx_count = cx.shared.tx_count;
+
+        cx.shared.serial.lock(|serial| {
+            write!(serial, "can_tx\r\n").unwrap();
+        });
 
         tx.clear_interrupt_flags();
 
@@ -412,7 +427,7 @@ mod app {
                     },
                     Err(nb::Error::WouldBlock) => break,
                     Err(e) => {
-                        hprintln!("Err(e) {:?}", e);
+                        //hprintln!("Err(e) {:?}", e);
                         unreachable!()
                     }
                 }
@@ -423,6 +438,9 @@ mod app {
     #[task(binds = USB_LP_CAN_RX0, local = [can_rx], shared = [can_tx_queue, led2, dyn_id, fw_upload, pending_fw_version_required, serial])]
     fn can_rx0(mut cx: can_rx0::Context) {
         // Echo back received packages with correct priority ordering.
+        cx.shared.serial.lock(|serial| {
+            write!(serial, "can_rx0\r\n").unwrap();
+        });
 
         //let mut dyn_id = cx.shared.dyn_id;
         let mut can_tx_queue = cx.shared.can_tx_queue;

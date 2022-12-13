@@ -1,3 +1,5 @@
+cd "$(dirname "$0")"
+
 mkdir out
 
 mv memory.x memory.x_
