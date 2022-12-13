@@ -55,22 +55,29 @@ fn main() -> ! {
 
     serial.bwrite_all(b"...Bootloader stated...\r\n");
 
-    let part_number = *unsafe { &*(0x8000800 as *const u8) };
+    let part_number = *unsafe { &*(0x8001800 as *const u8) };
 
-    fn jump_to_main(addr: i32) {
+    fn jump_to_main(address: u32) {
         unsafe {
-            (core::mem::transmute::<_, extern "C" fn()>(addr))();
+            #[allow(unused_mut)]
+                let mut p = cortex_m::Peripherals::steal();
+            #[cfg(not(armv6m))]
+            p.SCB.invalidate_icache();
+            p.SCB.vtor.write(address as u32);
+            cortex_m::asm::bootload(address as *const u32);
         }
     }
 
     match part_number {
         1 => {
             serial.bwrite_all(b"Jump to 1...\r\n");
-            jump_to_main(0x8001800)
+            jump_to_main(0x8001c00);
+            serial.bwrite_all(b"Jump\r\n");
         },
         2 => {
             serial.bwrite_all(b"Jump to 2...\r\n");
-            jump_to_main(0x8010a00)
+            jump_to_main(0x8010e00);
+            serial.bwrite_all(b"Jump\r\n");
         },
         _ => {
             serial.bwrite_all(b"!!!Address is undefined!!!\r\n");
