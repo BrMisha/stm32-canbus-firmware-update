@@ -131,9 +131,10 @@ async fn main() -> Result<(), Error> {
     data.extend(version);
     data.extend(&file);
 
-    let mut hasher = crc32fast::Hasher::new();
+    /*let mut hasher = crc32fast::Hasher::new();
     hasher.update(&data);
-    let crc = hasher.finalize();
+    let crc = hasher.finalize();*/
+    let crc = crc32c_hw::compute(&data);
     println!("crc {}", crc);
     data.extend(crc.to_be_bytes());
     //println!("rrrr {:?}", data);

@@ -3,6 +3,7 @@
 #![no_main]
 #![no_std]
 
+use core::ptr::write;
 use panic_semihosting as _;
 
 //use cortex_m_semihosting::hprintln;
@@ -26,8 +27,12 @@ use stm32f1xx_hal::{
     prelude::*,
     serial::{Config, Serial},
 };
-
 use cortex_m_rt::entry;
+use core::fmt::Write;
+
+const PAGE_SIZE: u32 = 1024;
+const FW_BEGIN: u32 = 20 * 1024;
+const NEW_FW_BEGIN: u32 = FW_BEGIN + (53 * 1024);
 
 #[entry]
 fn main() -> ! {
@@ -54,8 +59,43 @@ fn main() -> ! {
     );
 
     serial.bwrite_all(b"...Bootloader stated...\r\n");
+
+    let pf = helpers::pending_fw::get(NEW_FW_BEGIN);
+    match pf {
+        Some(v) => {
+            write!(serial, "Updating firmware to {}.{}.{} {}\r\n", v.0.major, v.0.minor, v.0.path, v.0.build);
+
+            let mut w = flash.writer(stm32f1xx_hal::flash::SectorSize::Sz1K, stm32f1xx_hal::flash::FlashSize::Sz128K);
+
+            for (page_n, data) in v.1.chunks(1024).enumerate() {
+                let page_p = (FW_BEGIN + (PAGE_SIZE * page_n as u32));
+                if let Err(e) = w.page_erase(page_p) {
+                    write!(serial, "Erase error {:?}\r\n", e).unwrap();
+                }
+
+                if let Err(e) = w.write(page_p, data) {
+                    write!(serial, "Write error {:?}\r\n", e).unwrap();
+                }
+            }
+
+            let flash_data = unsafe {
+                core::slice::from_raw_parts(&*(FW_BEGIN as *const u8), v.1.len())
+            };
+
+            for (pos, (v1, v2)) in flash_data.iter().zip(v.1).enumerate() {
+                if v1 != v2 {
+                    write!(serial, "Error from {:?}\r\n", pos).unwrap();
+                }
+            }
+
+            // erase
+            w.page_erase(NEW_FW_BEGIN);
+        },
+        None => {},
+    };
+
     serial.bwrite_all(b"Jump\r\n");
-    jump_to_main(0x8002000);
+    jump_to_main(0x8000000 + FW_BEGIN);
 
     fn jump_to_main(address: u32) {
         unsafe {
