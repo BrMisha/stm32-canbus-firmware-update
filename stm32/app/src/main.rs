@@ -7,10 +7,10 @@ mod util;
 use core::fmt::Write;
 //use cortex_m_semihosting::hprintln;
 
-use num_traits::cast::ToPrimitive;
+
 use panic_halt as _;
 use rtic::app;
-use stm32f1xx_hal::pac::Interrupt;
+
 use stm32f1xx_hal::{
     can::Can,
     gpio::{
@@ -32,9 +32,9 @@ pub const NEW_FW_BEGIN: usize = (20 + 53) * 1024;
 mod app {
     use super::*;
     use bxcan::Fifo;
-    use canbus_common::frame_id::SubId;
+    
     use canbus_common::frames::Type;
-    use helpers::firmware_update::PutPartError;
+    
     use stm32f1xx_hal::gpio;
     use stm32f1xx_hal::gpio::Floating;
     use stm32f1xx_hal::pac::USART1;

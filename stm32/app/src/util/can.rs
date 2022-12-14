@@ -101,20 +101,15 @@ pub fn can_rx0(mut cx: can_rx0::Context) {
 
                 match PriorityFrame::from_bxcan_frame(&frame) {
                     Ok(frame) => match frame.0 {
-                        canbus_common::frames::Frame::Serial(serial) => match serial {
-                            frames::Type::Remote => {
-                                can_tx_queue.lock(|can_tx_queue| {
-                                    enqueue_frame(
-                                        can_tx_queue,
-                                        PriorityFrame(canbus_common::frames::Frame::Serial(
-                                            frames::Type::Data(crate::DEVICE_SERIAL),
-                                        )),
-                                    );
-                                });
-
-                                //hprintln!("send");
-                            }
-                            _ => {}
+                        canbus_common::frames::Frame::Serial(serial) => if serial == frames::Type::Remote {
+                            can_tx_queue.lock(|can_tx_queue| {
+                                enqueue_frame(
+                                    can_tx_queue,
+                                    PriorityFrame(canbus_common::frames::Frame::Serial(
+                                        frames::Type::Data(crate::DEVICE_SERIAL),
+                                    )),
+                                );
+                            });
                         },
                         canbus_common::frames::Frame::DynId(value) => {
                             if value.serial == crate::DEVICE_SERIAL {
@@ -238,10 +233,9 @@ pub fn can_rx0(mut cx: can_rx0::Context) {
                 //hprintln!("e WouldBlock");
                 break;
             }
-            Err(nb::Error::Other(_e)) => {
-                //hprintln!("rx overrun");
+            Err(nb::Error::Other(e)) => {
                 cx.shared.serial.lock(|serial| {
-                    write!(serial, "rx overrun\r\n").unwrap();
+                    write!(serial, "rx overrun {:?}\r\n", e).unwrap();
                 });
             } // Ignore overrun errors.
         }
