@@ -26,18 +26,7 @@ use num_traits::cast::ToPrimitive;
 const DEVICE_SERIAL: canbus_common::frames::serial::Serial =
     canbus_common::frames::serial::Serial([1, 2, 3, 4, 5]);
 const PAGE_SIZE: usize = 1024;
-const NEW_FW_BEGIN: usize = PAGE_SIZE * 64;
-
-#[allow(dead_code)]
-#[link_section = ".fw_version"]
-#[used]
-static STR: [u8; 8] = *b"12345678";
-/*const FW_VERION: canbus_common::frames::version::Version = canbus_common::frames::version::Version{
-    major: 1,
-    minor: 2,
-    path: 3,
-    build: 4,
-};*/
+const NEW_FW_BEGIN: usize = (20 + 53) * 1024;
 
 #[derive(Debug)]
 pub struct PriorityFrame(pub canbus_common::frames::Frame);
@@ -341,44 +330,14 @@ mod app {
                 .lock(|pending_fw_version_required| *pending_fw_version_required)
             {
                 let begin = NEW_FW_BEGIN as u32;
-                let flash_size = u32::from_be_bytes(*unsafe { &*(begin as *const [u8; 4]) }); // without len and crc
-                                                                                              //let flash_size = unsafe { core::slice::from_raw_parts(&*(ptri as *const u8), 4) };
 
-                let version = canbus_common::frames::version::Version::from(*unsafe {
-                    &*((begin + 4) as *const [u8; 8])
-                });
-
-                //hprintln!("flash size {}", flash_size);
-                cx.shared.serial.lock(|serial| {
-                    write!(serial, "flash size {}\r\n", flash_size).unwrap();
-                });
-                // len+version+flash
-                let flash_data = unsafe {
-                    core::slice::from_raw_parts(&*(begin as *const u8), (flash_size + 4) as usize)
-                };
-
-                let crc = u32::from_be_bytes(*unsafe {
-                    &*((begin + flash_data.len() as u32) as *const [u8; 4])
-                });
-
-                let mut hasher = crc32fast::Hasher::new();
-                hasher.update(flash_data);
-                let crc_calculated = hasher.finalize();
+                let pf = helpers::pending_fw::get(begin);
 
                 cx.shared.can_tx_queue.lock(|can_tx_queue| {
                     enqueue_frame(
                         can_tx_queue,
                         PriorityFrame(canbus_common::frames::Frame::PendingFirmwareVersion(
-                            Type::Data(match crc == crc_calculated {
-                                true => Some(version),
-                                false => {
-                                    //hprintln!("wrong crc {} {}", crc, crc_calculated);
-                                    cx.shared.serial.lock(|serial| {
-                                        write!(serial, "wrong crc {} {}\r\n", crc, crc_calculated).unwrap();
-                                    });
-                                    None
-                                }
-                            }),
+                            Type::Data(pf.map(|v| v.0))
                         )),
                     );
                 });
@@ -400,10 +359,6 @@ mod app {
         let tx = cx.local.can_tx;
         let mut tx_queue = cx.shared.can_tx_queue;
         //let _tx_count = cx.shared.tx_count;
-
-        cx.shared.serial.lock(|serial| {
-            write!(serial, "can_tx\r\n").unwrap();
-        });
 
         tx.clear_interrupt_flags();
 
@@ -457,11 +412,6 @@ mod app {
 
     #[task(binds = USB_LP_CAN_RX0, local = [can_rx], shared = [can_tx_queue, led2, dyn_id, fw_upload, pending_fw_version_required, serial])]
     fn can_rx0(mut cx: can_rx0::Context) {
-        // Echo back received packages with correct priority ordering.
-        cx.shared.serial.lock(|serial| {
-            write!(serial, "can_rx0\r\n").unwrap();
-        });
-
         //let mut dyn_id = cx.shared.dyn_id;
         let mut can_tx_queue = cx.shared.can_tx_queue;
 
