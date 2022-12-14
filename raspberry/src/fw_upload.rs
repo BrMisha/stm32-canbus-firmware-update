@@ -1,4 +1,4 @@
-use crate::can_bus;
+use crate::{can_bus, util};
 use canbus_common::frame_id::SubId;
 use futures_util::{StreamExt, TryFutureExt};
 use std::any::Any;
@@ -41,7 +41,7 @@ async fn poll_rx(
     mut socket: tokio::sync::broadcast::Receiver<(canbus_common::frames::Frame, SubId)>,
     part: Arc<Mutex<usize>>,
     pause: watch::Sender<bool>,
-) -> Result<(), crate::Error> {
+) -> Result<(), util::Error> {
     while let Ok(frame) = socket.recv().await {
         if id == frame.1 {
             match frame.0 {
@@ -67,7 +67,7 @@ async fn upload_parts(
     socket: &can_bus::CanBus,
     part: Arc<Mutex<usize>>,
     mut pause: watch::Receiver<bool>,
-) -> Result<(), crate::Error> {
+) -> Result<(), util::Error> {
     println!("upload_parts {:?}", std::thread::current());
     let file_len = file.len();
     println!("file_len {:?}", file_len);
@@ -114,7 +114,7 @@ async fn upload_parts(
                         ),
                         id,
                     )
-                    .map_err(crate::Error::Socket)?
+                    .map_err(util::Error::Socket)?
                     .await
                 {
                     Ok(_ok) => {
@@ -138,7 +138,7 @@ async fn upload_parts(
                                 err.kind(),
                                 err.type_id()
                             );
-                            return Err(crate::Error::Io(err));
+                            return Err(util::Error::Io(err));
                         }
                     },
                 }

@@ -1,5 +1,6 @@
 mod can_bus;
 mod fw_upload;
+mod util;
 
 use canbus_common::frame_id::SubId;
 use canbus_common::frames::version::Version;
@@ -11,79 +12,70 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::broadcast::Receiver;
 use tokio::time::{sleep, Duration};
 
-async fn wait_data<T, O: Fn(&canbus_common::frames::Frame) -> Option<T>>(
-    mut socket_rx: Receiver<(Frame, SubId)>,
-    comparator: O,
-) -> Option<(T, canbus_common::frame_id::SubId)> {
-    select! {
-        res = async {
-            loop {
-                match socket_rx.recv().await {
-                    Ok(frame) => {
-                        let res = comparator(&frame.0);
-                        if res.is_some() {
-                            return res.map(|o| {(o, frame.1)});
-                        }
-                    },
-                    Err(RecvError::Closed) => {
-                        return None
-                    }
-                    Err(RecvError::Lagged(l)) => {
-                        println!("Lagged {}", l);
-                        return None
-                    }
-                }
-            }
-            None
-        } => res,
-        _timeout = sleep(Duration::from_millis(2000)) => None
-    }
-}
+use clap::{arg, Parser};
 
-#[derive(Debug)]
-pub enum Error {
-    Socket(tokio_socketcan::Error),
-    Io(std::io::Error),
-    Other(String),
-}
 
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Self::Io(e)
-    }
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+enum Args {
+    /*Get {
+        #[clap(long)]
+        tt: String
+    },*/
+    ShowSerials,
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<(), util::Error> {
+    let args = Args::parse();
+    println!("{:?}", args);
+
     let can = can_bus::CanBus::open("can0").unwrap();
 
-    async fn get_serial(
-        can_receiver: Receiver<(Frame, SubId)>,
-    ) -> Result<
-        (
-            canbus_common::frames::serial::Serial,
-            canbus_common::frame_id::SubId,
-        ),
-        Error,
-    > {
-        wait_data(can_receiver, |frame| match frame {
-            canbus_common::frames::Frame::Serial(canbus_common::frames::Type::Data(value)) => {
-                Some(*value)
+    match args {
+        Args::ShowSerials => {
+            let mut can_receiver = can.subscribe();
+            can.write_frame(
+                &canbus_common::frames::Frame::Serial(canbus_common::frames::Type::Remote),
+                canbus_common::frame_id::SubId(0),
+            )
+                .map_err(util::Error::Socket)?
+                .await?;
+
+            let mut list = Vec::new();
+
+            select! {
+                res = async {
+                    loop {
+                        match can_receiver.recv().await {
+                            Ok(frame) => {
+                                if let Frame::Serial(canbus_common::frames::Type::Data(v)) = frame.0 {
+                                    list.push(v);
+                                }
+                            },
+                            Err(RecvError::Closed) => break,
+                            _ => {},
+                        }
+                    }
+                    ()
+                } => res,
+                _timeout = sleep(Duration::from_millis(2000)) => ()
             }
-            _ => None,
-        })
-            .await
-            .ok_or(Error::Other("Request serial".to_string()))
+
+            println!("Serials: {:?}", list);
+        }
     }
+    return Ok(());
+
 
     let can_receiver = can.subscribe();
     can.write_frame(
         &canbus_common::frames::Frame::Serial(canbus_common::frames::Type::Remote),
         canbus_common::frame_id::SubId(0),
     )
-        .map_err(Error::Socket)?
+        .map_err(util::Error::Socket)?
         .await?;
-    let res = get_serial(can_receiver).await?;
+    let res = util::get_serial(can_receiver).await?;
     println!("Serial: {:?}", res);
 
     let mut sub_id = res.1;
@@ -95,7 +87,7 @@ async fn main() -> Result<(), Error> {
             )),
             canbus_common::frame_id::SubId(0),
         )
-            .map_err(Error::Socket)?
+            .map_err(util::Error::Socket)?
             .await?;
 
         let can_receiver = can.subscribe();
@@ -103,13 +95,13 @@ async fn main() -> Result<(), Error> {
             &canbus_common::frames::Frame::Serial(canbus_common::frames::Type::Remote),
             canbus_common::frame_id::SubId(0),
         )
-            .map_err(Error::Socket)?
+            .map_err(util::Error::Socket)?
             .await?;
 
-        let res = get_serial(can_receiver).await?;
+        let res = util::get_serial(can_receiver).await?;
         println!("Serial: {:?}", res);
         if res.1.split()[1] != 10 {
-            return Err(Error::Other("Unable to set dyn_id".to_string()));
+            return Err(util::Error::Other("Unable to set dyn_id".to_string()));
         }
         sub_id = res.1;
     }
@@ -144,7 +136,7 @@ async fn main() -> Result<(), Error> {
         &canbus_common::frames::Frame::FirmwareUploadFinished,
         sub_id,
     )
-        .map_err(Error::Socket)?
+        .map_err(util::Error::Socket)?
         .await?;
 
     println!("upload finish {:?}", timer.elapsed());
@@ -156,9 +148,9 @@ async fn main() -> Result<(), Error> {
         &canbus_common::frames::Frame::PendingFirmwareVersion(canbus_common::frames::Type::Remote),
         sub_id,
     )
-        .map_err(Error::Socket)?
+        .map_err(util::Error::Socket)?
         .await?;
-    let res = wait_data(can_receiver, |frame| {
+    let res = util::wait_data(can_receiver, |frame| {
         println!("frame__ {:?}", frame);
         match frame {
             canbus_common::frames::Frame::PendingFirmwareVersion(
@@ -168,7 +160,7 @@ async fn main() -> Result<(), Error> {
         }
     })
         .await
-        .ok_or(Error::Other("Request pending version".to_string()));
+        .ok_or(util::Error::Other("Request pending version".to_string()));
     println!("p ver {:?}", res);
 
     if let Ok((Some(v), _)) = res {
@@ -176,7 +168,7 @@ async fn main() -> Result<(), Error> {
             &canbus_common::frames::Frame::FirmwareStartUpdate,
             sub_id,
         )
-            .map_err(Error::Socket)?
+            .map_err(util::Error::Socket)?
             .await?;
     }
 
