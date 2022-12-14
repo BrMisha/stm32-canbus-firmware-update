@@ -285,67 +285,11 @@ mod app {
         }
     }
 
-    // This ISR is triggered by each finished frame transmission.
-    #[task(binds = USB_HP_CAN_TX, local = [can_tx], shared = [can_tx_queue, tx_count, led2, dyn_id, serial])]
-    fn can_tx(mut cx: can_tx::Context) {
-        let tx = cx.local.can_tx;
-        let mut tx_queue = cx.shared.can_tx_queue;
-        //let _tx_count = cx.shared.tx_count;
-
-        tx.clear_interrupt_flags();
-
-        cx.shared.led2.lock(|_led| {
-            //led.set_high();
-        });
-
-        // There is now a free mailbox. Try to transmit pending frames until either
-        // the queue is empty or transmission would block the execution of this ISR.
-        tx_queue.lock(|tx_queue| {
-            //let mut serial = cx.shared.serial;
-            //hprintln!("tx_queue {}", tx_queue.len());
-            while let Some(frame) = tx_queue.peek() {
-                //hprintln!("tx_queue1");
-                let sub_id = cx.shared.dyn_id.lock(|v| *v);
-                /*hprintln!("tx_queue12");
-                cx.shared.serial.lock(|serial| {
-                    write!(serial, "tx_queue12: {:?} {:?}\r\n", sub_id, frame).unwrap();
-                    //nb::block!(serial.write_str("fdddddddddd"));
-                    //write!(serial, "123456789\r\n").unwrap();
-                });*/
-                let f = frame.to_bx_frame(sub_id);
-                //hprintln!("tx_queue123");
-                let t = tx.transmit(&f);
-                //hprintln!("tx_queue1234");
-                match t {
-                    Ok(status) => match status.dequeued_frame() {
-                        None => {
-                            // Frame was successfully placed into a transmit buffer.
-                            tx_queue.pop();
-                        }
-                        Some(pending_frame) => {
-                            //hprintln!("enqueue_frame pending");
-                            // A lower priority frame was replaced with our high priority frame.
-                            // Put the low priority frame back in the transmit queue.
-                            tx_queue.pop();
-
-                            let f = util::can::PriorityFrame::from_bxcan_frame(pending_frame).unwrap();
-                            util::can::enqueue_frame(tx_queue, f);
-                        }
-                    },
-                    Err(nb::Error::WouldBlock) => break,
-                    Err(_e) => {
-                        //hprintln!("Err(e) {:?}", e);
-                        unreachable!()
-                    }
-                }
-            }
-        });
+    use crate::util::can::can_tx;
+    extern "Rust" {
+        #[task(binds = USB_HP_CAN_TX, local = [can_tx], shared = [can_tx_queue, tx_count, led2, dyn_id, serial])]
+        fn can_tx(mut cx: can_tx::Context);
     }
-
-    /*
-    fn can_rx0(mut cx: can_rx0::Context) {
-        util::can::rx(cx);
-    }*/
 
     use crate::util::can::can_rx0;
     extern "Rust" {
