@@ -158,7 +158,6 @@ async fn main() -> Result<(), Error> {
     )
         .map_err(Error::Socket)?
         .await?;
-
     let res = wait_data(can_receiver, |frame| {
         println!("frame__ {:?}", frame);
         match frame {
@@ -171,6 +170,15 @@ async fn main() -> Result<(), Error> {
         .await
         .ok_or(Error::Other("Request pending version".to_string()));
     println!("p ver {:?}", res);
+
+    if let Ok((Some(v), _)) = res {
+        can.write_frame(
+            &canbus_common::frames::Frame::FirmwareStartUpdate,
+            sub_id,
+        )
+            .map_err(Error::Socket)?
+            .await?;
+    }
 
     Ok(())
 }

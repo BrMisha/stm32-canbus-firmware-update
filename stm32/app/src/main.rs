@@ -118,6 +118,7 @@ mod app {
         data: helpers::firmware_update::FirmwareUpdate<PAGE_SIZE, 5, { PAGE_SIZE + 5 }>,
         paused: bool,
         finished: bool,
+        has_pending_fw: bool,
     }
 
     #[shared]
@@ -298,6 +299,8 @@ mod app {
 
                     fw_upload.data.remove_page();
                     //hprintln!("removed_page {}", fw_upload.data.len());
+
+                    fw_upload.has_pending_fw = false;
                 }
 
                 if fw_upload.finished {
@@ -305,10 +308,8 @@ mod app {
                     fw_upload.data.reset();
                     //hprintln!("finished");
                     cx.shared.serial.lock(|serial| {
-                        write!(serial, "Finished\r\nReboot...\r\n").unwrap();
+                        write!(serial, "Finished\r\n").unwrap();
                     });
-
-                    cortex_m::peripheral::SCB::sys_reset();
                 }
 
                 if fw_upload.paused {
@@ -333,6 +334,10 @@ mod app {
                 let begin = NEW_FW_BEGIN as u32;
 
                 let pf = helpers::pending_fw::get(begin);
+
+                cx.shared.fw_upload.lock(|fw_upload: &mut FwUpload| {
+                    fw_upload.has_pending_fw = pf.is_some();
+                });
 
                 cx.shared.can_tx_queue.lock(|can_tx_queue| {
                     enqueue_frame(
@@ -533,6 +538,23 @@ mod app {
                                             ),
                                         );
                                     });
+                                });
+                            }
+                            canbus_common::frames::Frame::FirmwareStartUpdate if id_is_ok => {
+                                cx.shared.fw_upload.lock(|fw_upload| {
+                                    match fw_upload.has_pending_fw {
+                                        true => {
+                                            cx.shared.serial.lock(|serial| {
+                                                write!(serial, "Reboot to upgrade...\r\n").unwrap();
+                                            });
+                                            cortex_m::peripheral::SCB::sys_reset();
+                                        }
+                                        false => {
+                                            cx.shared.serial.lock(|serial| {
+                                                write!(serial, "Has no pending fw !!!\r\n").unwrap();
+                                            });
+                                        }
+                                    }
                                 });
                             }
                             _ => {}
