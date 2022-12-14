@@ -131,23 +131,19 @@ async fn main() -> Result<(), Error> {
     data.extend(version);
     data.extend(&file);
 
-    /*let mut hasher = crc32fast::Hasher::new();
-    hasher.update(&data);
-    let crc = hasher.finalize();*/
     let crc = crc32c_hw::compute(&data);
     println!("crc {}", crc);
     data.extend(crc.to_be_bytes());
-    //println!("rrrr {:?}", data);
 
     let timer = std::time::Instant::now();
-    fw_upload::upload(&can, sub_id, &data).await;
+    /*fw_upload::upload(&can, sub_id, &data).await;
 
     can.write_frame(
         &canbus_common::frames::Frame::FirmwareUploadFinished,
         sub_id,
     )
     .map_err(Error::Socket)?
-    .await?;
+    .await?;*/
 
     println!("upload finish {:?}", timer.elapsed());
     //sleep(Duration::from_millis(10000)).await;

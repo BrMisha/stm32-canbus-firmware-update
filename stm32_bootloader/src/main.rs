@@ -50,12 +50,12 @@ fn main() -> ! {
     let tx = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
     let rx = gpioa.pa10;
 
-    let mut serial = Serial::usart1(
+    let mut serial = Serial::new(
         dev_p.USART1,
         (tx, rx),
         &mut afio.mapr,
         Config::default().baudrate(115200_u32.bps()),
-        clocks,
+        &clocks,
     );
 
     serial.bwrite_all(b"...Bootloader stated...\r\n");
@@ -68,7 +68,7 @@ fn main() -> ! {
             let mut w = flash.writer(stm32f1xx_hal::flash::SectorSize::Sz1K, stm32f1xx_hal::flash::FlashSize::Sz128K);
 
             for (page_n, data) in v.1.chunks(1024).enumerate() {
-                let page_p = (FW_BEGIN + (PAGE_SIZE * page_n as u32));
+                let page_p = FW_BEGIN + (PAGE_SIZE * page_n as u32);
                 if let Err(e) = w.page_erase(page_p) {
                     write!(serial, "Erase error {:?}\r\n", e).unwrap();
                 }

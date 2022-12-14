@@ -20,7 +20,6 @@ use stm32f1xx_hal::{
     serial::{Config, Serial},
 };
 use systick_monotonic::Systick;
-
 use num_traits::cast::ToPrimitive;
 
 const DEVICE_SERIAL: canbus_common::frames::serial::Serial =
@@ -105,6 +104,7 @@ fn enqueue_frame(queue: &mut BinaryHeap<PriorityFrame, Max, 16>, frame: Priority
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, dispatchers = [SPI1, SPI2])]
 mod app {
+    use bxcan::Fifo;
     use super::*;
     use canbus_common::frame_id::SubId;
     use canbus_common::frames::Type;
@@ -144,7 +144,7 @@ mod app {
     #[local]
     struct Local {
         can_tx: bxcan::Tx<Can<CAN1>>,
-        can_rx: bxcan::Rx<Can<CAN1>>,
+        can_rx: bxcan::Rx0<Can<CAN1>>,
 
         flash: stm32f1xx_hal::flash::Parts,
         //flash_writer: stm32f1xx_hal::flash::FlashWriter<'static>,
@@ -169,10 +169,10 @@ mod app {
         let clocks = rcc
             .cfgr
             .use_hse(8.MHz())
-            /*.sysclk(64.MHz())
+            .sysclk(64.MHz())
             .hclk(64.MHz())
             .pclk1(8.MHz())
-            .pclk2(64.MHz())*/
+            .pclk2(64.MHz())
             .freeze(&mut flash.acr);
 
         let mut afio = ctx.device.AFIO.constrain();
@@ -188,13 +188,12 @@ mod app {
         let tx = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
         let rx = gpioa.pa10;
 
-        let mut serial = Serial::usart1(
-            //dev_p.USART1,
+        let mut serial = Serial::new(
             ctx.device.USART1,
             (tx, rx),
             &mut afio.mapr,
             Config::default().baudrate(115200.bps()),
-            clocks,
+            &clocks,
         );
         write!(serial, "stadte: {:?}\r\n", 1).unwrap();
         // Schedule the blinking task
@@ -218,7 +217,7 @@ mod app {
             .leave_disabled();
 
         can.modify_filters()
-            .enable_bank(0, bxcan::filter::Mask32::accept_all());
+            .enable_bank(0,  Fifo::Fifo0, bxcan::filter::Mask32::accept_all());
         /*.enable_bank(
             0,
             Mask32::frames_with_ext_id(
@@ -233,7 +232,7 @@ mod app {
         );
         nb::block!(can.enable_non_blocking()).unwrap();
 
-        let (can_tx, can_rx) = can.split();
+        let (can_tx, can_rx, _) = can.split();
 
         let can_tx_queue = BinaryHeap::new();
 
