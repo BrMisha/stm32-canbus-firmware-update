@@ -4,7 +4,7 @@ f.close()
 
 # fill up to app
 s = len(array)
-for x in range(s, 0x2000):
+for x in range(s, 0x5000):
     array.append(0xFF)
 
 f = open('stm32/target/app.bin', 'rb')
