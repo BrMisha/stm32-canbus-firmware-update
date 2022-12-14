@@ -63,7 +63,7 @@ fn main() -> ! {
     let pf = helpers::pending_fw::get(NEW_FW_BEGIN);
     match pf {
         Some(v) => {
-            write!(serial, "Updating firmware to {}.{}.{} {}\r\n", v.0.major, v.0.minor, v.0.path, v.0.build);
+            write!(serial, "Updating firmware to {}.{}.{} {}\r\n", v.0.major, v.0.minor, v.0.path, v.0.build).unwrap();
 
             let mut w = flash.writer(stm32f1xx_hal::flash::SectorSize::Sz1K, stm32f1xx_hal::flash::FlashSize::Sz128K);
 
@@ -85,11 +85,14 @@ fn main() -> ! {
             for (pos, (v1, v2)) in flash_data.iter().zip(v.1).enumerate() {
                 if v1 != v2 {
                     write!(serial, "Error from {:?}\r\n", pos).unwrap();
+                    cortex_m::peripheral::SCB::sys_reset();
                 }
             }
 
             // erase
-            w.page_erase(NEW_FW_BEGIN);
+            if let Err(e) = w.page_erase(NEW_FW_BEGIN) {
+                write!(serial, "FW erase error {:?}\r\n", e).unwrap();
+            }
         },
         None => {},
     };

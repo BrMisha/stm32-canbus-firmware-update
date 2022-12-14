@@ -72,8 +72,8 @@ async fn main() -> Result<(), Error> {
             }
             _ => None,
         })
-        .await
-        .ok_or(Error::Other("Request serial".to_string()))
+            .await
+            .ok_or(Error::Other("Request serial".to_string()))
     }
 
     let can_receiver = can.subscribe();
@@ -81,8 +81,8 @@ async fn main() -> Result<(), Error> {
         &canbus_common::frames::Frame::Serial(canbus_common::frames::Type::Remote),
         canbus_common::frame_id::SubId(0),
     )
-    .map_err(Error::Socket)?
-    .await?;
+        .map_err(Error::Socket)?
+        .await?;
     let res = get_serial(can_receiver).await?;
     println!("Serial: {:?}", res);
 
@@ -95,16 +95,16 @@ async fn main() -> Result<(), Error> {
             )),
             canbus_common::frame_id::SubId(0),
         )
-        .map_err(Error::Socket)?
-        .await?;
+            .map_err(Error::Socket)?
+            .await?;
 
         let can_receiver = can.subscribe();
         can.write_frame(
             &canbus_common::frames::Frame::Serial(canbus_common::frames::Type::Remote),
             canbus_common::frame_id::SubId(0),
         )
-        .map_err(Error::Socket)?
-        .await?;
+            .map_err(Error::Socket)?
+            .await?;
 
         let res = get_serial(can_receiver).await?;
         println!("Serial: {:?}", res);
@@ -116,34 +116,36 @@ async fn main() -> Result<(), Error> {
 
     //let file = std::fs::read("/home/pi/file.txt").unwrap();
     //let file = std::fs::read("/home/pi/file2.jpg").unwrap();
-    let file = std::fs::read("/home/pi/file3.jpg").unwrap();
+    /*let file = std::fs::read("/home/pi/file3.jpg").unwrap();
 
-    let version = <[u8; 8]>::from(Version {
-        major: 1,
-        minor: 2,
-        path: 3,
-        build: 4,
-    });
+        let version = <[u8; 8]>::from(Version {
+            major: 1,
+            minor: 2,
+            path: 3,
+            build: 4,
+        });
 
-    let mut data = Vec::<u8>::new();
-    //println!("dd {:?} {}", ((version.len() + file.len()) as u32).to_be_bytes(), ((version.len() + file.len()) as u32));
-    data.extend(((version.len() + file.len()) as u32).to_be_bytes()); // add len
-    data.extend(version);
-    data.extend(&file);
+        let mut data = Vec::<u8>::new();
+        //println!("dd {:?} {}", ((version.len() + file.len()) as u32).to_be_bytes(), ((version.len() + file.len()) as u32));
+        data.extend(((version.len() + file.len()) as u32).to_be_bytes()); // add len
+        data.extend(version);
+        data.extend(&file);
 
-    let crc = crc32c_hw::compute(&data);
-    println!("crc {}", crc);
-    data.extend(crc.to_be_bytes());
-
+        let crc = crc32c_hw::compute(&data);
+        println!("crc {}", crc);
+        data.extend(crc.to_be_bytes());
+*/
     let timer = std::time::Instant::now();
-    /*fw_upload::upload(&can, sub_id, &data).await;
+
+    let data = std::fs::read("/home/pi/app.bin").unwrap();
+    fw_upload::upload(&can, sub_id, &data).await;
 
     can.write_frame(
         &canbus_common::frames::Frame::FirmwareUploadFinished,
         sub_id,
     )
-    .map_err(Error::Socket)?
-    .await?;*/
+        .map_err(Error::Socket)?
+        .await?;
 
     println!("upload finish {:?}", timer.elapsed());
     //sleep(Duration::from_millis(10000)).await;
@@ -154,8 +156,8 @@ async fn main() -> Result<(), Error> {
         &canbus_common::frames::Frame::PendingFirmwareVersion(canbus_common::frames::Type::Remote),
         sub_id,
     )
-    .map_err(Error::Socket)?
-    .await?;
+        .map_err(Error::Socket)?
+        .await?;
 
     let res = wait_data(can_receiver, |frame| {
         println!("frame__ {:?}", frame);
@@ -166,8 +168,8 @@ async fn main() -> Result<(), Error> {
             _ => None,
         }
     })
-    .await
-    .ok_or(Error::Other("Request pending version".to_string()));
+        .await
+        .ok_or(Error::Other("Request pending version".to_string()));
     println!("p ver {:?}", res);
 
     Ok(())

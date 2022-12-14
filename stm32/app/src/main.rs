@@ -6,6 +6,7 @@ use core::cmp::Ordering;
 use core::fmt::Write;
 //use cortex_m_semihosting::hprintln;
 use heapless::binary_heap::{BinaryHeap, Max};
+use num_traits::cast::ToPrimitive;
 use panic_halt as _;
 use rtic::app;
 use stm32f1xx_hal::pac::Interrupt;
@@ -20,7 +21,6 @@ use stm32f1xx_hal::{
     serial::{Config, Serial},
 };
 use systick_monotonic::Systick;
-use num_traits::cast::ToPrimitive;
 
 const DEVICE_SERIAL: canbus_common::frames::serial::Serial =
     canbus_common::frames::serial::Serial([1, 2, 3, 4, 5]);
@@ -95,7 +95,7 @@ impl PartialEq for PriorityFrame {
 impl Eq for PriorityFrame {}
 
 fn enqueue_frame(queue: &mut BinaryHeap<PriorityFrame, Max, 16>, frame: PriorityFrame) {
-    if let Err(e) = queue.push(frame) {
+    if let Err(_e) = queue.push(frame) {
         //hprintln!("push err {:?}", e);
         return;
     }
@@ -104,8 +104,8 @@ fn enqueue_frame(queue: &mut BinaryHeap<PriorityFrame, Max, 16>, frame: Priority
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, dispatchers = [SPI1, SPI2])]
 mod app {
-    use bxcan::Fifo;
     use super::*;
+    use bxcan::Fifo;
     use canbus_common::frame_id::SubId;
     use canbus_common::frames::Type;
     use helpers::firmware_update::PutPartError;
@@ -181,7 +181,7 @@ mod app {
         //let mut delay = delay::Delay::new(ctx.core.SYST, 36_000_000);
 
         let mut gpioa = ctx.device.GPIOA.split();
-        let mut led = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
+        let led = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
         let led2 = gpioa.pa3.into_push_pull_output(&mut gpioa.crl);
 
         // USART1
@@ -217,7 +217,7 @@ mod app {
             .leave_disabled();
 
         can.modify_filters()
-            .enable_bank(0,  Fifo::Fifo0, bxcan::filter::Mask32::accept_all());
+            .enable_bank(0, Fifo::Fifo0, bxcan::filter::Mask32::accept_all());
         /*.enable_bank(
             0,
             Mask32::frames_with_ext_id(
@@ -264,9 +264,9 @@ mod app {
         cx.shared.can_tx_queue.lock(|can_tx_queue| {
             enqueue_frame(
                 can_tx_queue,
-                PriorityFrame(canbus_common::frames::Frame::Serial(
-                    Type::Data(DEVICE_SERIAL),
-                )),
+                PriorityFrame(canbus_common::frames::Frame::Serial(Type::Data(
+                    DEVICE_SERIAL,
+                ))),
             );
         });
 
@@ -305,8 +305,10 @@ mod app {
                     fw_upload.data.reset();
                     //hprintln!("finished");
                     cx.shared.serial.lock(|serial| {
-                        write!(serial, "finished\r\n").unwrap();
+                        write!(serial, "Finished\r\nReboot...\r\n").unwrap();
                     });
+
+                    cortex_m::peripheral::SCB::sys_reset();
                 }
 
                 if fw_upload.paused {
@@ -336,7 +338,7 @@ mod app {
                     enqueue_frame(
                         can_tx_queue,
                         PriorityFrame(canbus_common::frames::Frame::PendingFirmwareVersion(
-                            Type::Data(pf.map(|v| v.0))
+                            Type::Data(pf.map(|v| v.0)),
                         )),
                     );
                 });
@@ -400,7 +402,7 @@ mod app {
                         }
                     },
                     Err(nb::Error::WouldBlock) => break,
-                    Err(e) => {
+                    Err(_e) => {
                         //hprintln!("Err(e) {:?}", e);
                         unreachable!()
                     }
@@ -462,9 +464,9 @@ mod app {
                                 )
                             }
                             canbus_common::frames::Frame::FirmwareUploadPart(value) if id_is_ok => {
-                                cx.shared.serial.lock(|serial| {
+                                /*cx.shared.serial.lock(|serial| {
                                     write!(serial, "FirmwareUploadPart: {:?}\r\n", value).unwrap();
-                                });
+                                });*/
 
                                 cx.shared.fw_upload.lock(|fw_upload| {
                                     match fw_upload.data.put_part(value.data, value.position()) {
@@ -548,7 +550,7 @@ mod app {
                 Err(nb::Error::Other(_e)) => {
                     //hprintln!("rx overrun");
                     cx.shared.serial.lock(|serial| {
-                        write!(serial, "rx overrun").unwrap();
+                        write!(serial, "rx overrun\r\n").unwrap();
                     });
                 } // Ignore overrun errors.
             }
