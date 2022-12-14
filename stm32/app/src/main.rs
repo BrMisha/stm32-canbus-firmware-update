@@ -2,10 +2,11 @@
 #![no_main]
 #![cfg_attr(not(test), no_std)]
 
-use core::cmp::Ordering;
+mod util;
+
 use core::fmt::Write;
 //use cortex_m_semihosting::hprintln;
-use heapless::binary_heap::{BinaryHeap, Max};
+
 use num_traits::cast::ToPrimitive;
 use panic_halt as _;
 use rtic::app;
@@ -22,85 +23,10 @@ use stm32f1xx_hal::{
 };
 use systick_monotonic::Systick;
 
-const DEVICE_SERIAL: canbus_common::frames::serial::Serial =
+pub const DEVICE_SERIAL: canbus_common::frames::serial::Serial =
     canbus_common::frames::serial::Serial([1, 2, 3, 4, 5]);
-const PAGE_SIZE: usize = 1024;
-const NEW_FW_BEGIN: usize = (20 + 53) * 1024;
-
-#[derive(Debug)]
-pub struct PriorityFrame(pub canbus_common::frames::Frame);
-
-impl PriorityFrame {
-    pub fn to_bx_frame(&self, sub_id: canbus_common::frame_id::SubId) -> bxcan::Frame {
-        let raw = self.0.raw_frame();
-        let raw_id = raw.0.as_raw(sub_id);
-
-        match raw.1 {
-            canbus_common::frames::RawType::Data(v) => bxcan::Frame::new_data(
-                bxcan::ExtendedId::new(raw_id).unwrap(),
-                bxcan::Data::new(&v).unwrap(),
-            ),
-            canbus_common::frames::RawType::Remote(len) => {
-                bxcan::Frame::new_remote(bxcan::ExtendedId::new(raw_id).unwrap(), len)
-            }
-        }
-    }
-
-    pub fn from_bxcan_frame(f: &bxcan::Frame) -> Result<Self, ()> {
-        let id = match f.id() {
-            bxcan::Id::Extended(id) => {
-                canbus_common::frame_id::FrameId::try_from_u32_with_sub_id(id.as_raw()).ok_or(())
-            }
-            _ => Err(()),
-        }?;
-
-        let res = canbus_common::frames::Frame::parse_frame(
-            id.0,
-            match f.data() {
-                Some(data) => canbus_common::frames::ParserType::Data(data),
-                None => canbus_common::frames::ParserType::Remote(f.dlc()),
-            },
-        )
-        .map_err(|_e| ())?;
-
-        Ok(PriorityFrame(res))
-    }
-}
-
-/// Ordering is based on the Identifier and frame type (data vs. remote) and can be used to sort
-/// frames by priority.
-impl Ord for PriorityFrame {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self.0.id().to_u16() > other.0.id().to_u16() {
-            return Ordering::Greater;
-        } else if self.0.id().to_u16() < other.0.id().to_u16() {
-            return Ordering::Less;
-        }
-        Ordering::Equal
-    }
-}
-
-impl PartialOrd for PriorityFrame {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for PriorityFrame {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl Eq for PriorityFrame {}
-
-fn enqueue_frame(queue: &mut BinaryHeap<PriorityFrame, Max, 16>, frame: PriorityFrame) {
-    if let Err(_e) = queue.push(frame) {
-        //hprintln!("push err {:?}", e);
-        return;
-    }
-    rtic::pend(Interrupt::USB_HP_CAN_TX);
-}
+pub const PAGE_SIZE: usize = 1024;
+pub const NEW_FW_BEGIN: usize = (20 + 53) * 1024;
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, dispatchers = [SPI1, SPI2])]
 mod app {
@@ -115,10 +41,10 @@ mod app {
 
     #[derive(Default)]
     pub struct FwUpload {
-        data: helpers::firmware_update::FirmwareUpdate<PAGE_SIZE, 5, { PAGE_SIZE + 5 }>,
-        paused: bool,
-        finished: bool,
-        has_pending_fw: bool,
+        pub data: helpers::firmware_update::FirmwareUpdate<PAGE_SIZE, 5, { PAGE_SIZE + 5 }>,
+        pub paused: bool,
+        pub finished: bool,
+        pub has_pending_fw: bool,
     }
 
     #[shared]
@@ -135,7 +61,7 @@ mod app {
 
         dyn_id: canbus_common::frame_id::SubId,
 
-        can_tx_queue: BinaryHeap<PriorityFrame, Max, 16>,
+        can_tx_queue: heapless::binary_heap::BinaryHeap<util::can::PriorityFrame, heapless::binary_heap::Max, 16>,
         tx_count: usize,
 
         fw_upload: FwUpload,
@@ -235,7 +161,7 @@ mod app {
 
         let (can_tx, can_rx, _) = can.split();
 
-        let can_tx_queue = BinaryHeap::new();
+        let can_tx_queue = heapless::binary_heap::BinaryHeap::new();
 
         //rtic::pend(Interrupt::USB_HP_CAN_TX);
         //let _tt: Option<euc_can_common::Message> = None;
@@ -263,9 +189,9 @@ mod app {
     #[idle(shared = [can_tx_queue, fw_upload, pending_fw_version_required, serial], local = [flash])]
     fn idle(mut cx: idle::Context) -> ! {
         cx.shared.can_tx_queue.lock(|can_tx_queue| {
-            enqueue_frame(
+            util::can::enqueue_frame(
                 can_tx_queue,
-                PriorityFrame(canbus_common::frames::Frame::Serial(Type::Data(
+                util::can::PriorityFrame(canbus_common::frames::Frame::Serial(Type::Data(
                     DEVICE_SERIAL,
                 ))),
             );
@@ -316,9 +242,9 @@ mod app {
                     fw_upload.paused = false;
 
                     cx.shared.can_tx_queue.lock(|can_tx_queue| {
-                        enqueue_frame(
+                        util::can::enqueue_frame(
                             can_tx_queue,
-                            PriorityFrame(canbus_common::frames::Frame::FirmwareUploadPause(
+                            util::can::PriorityFrame(canbus_common::frames::Frame::FirmwareUploadPause(
                                 fw_upload.paused,
                             )),
                         );
@@ -340,9 +266,9 @@ mod app {
                 });
 
                 cx.shared.can_tx_queue.lock(|can_tx_queue| {
-                    enqueue_frame(
+                    util::can::enqueue_frame(
                         can_tx_queue,
-                        PriorityFrame(canbus_common::frames::Frame::PendingFirmwareVersion(
+                        util::can::PriorityFrame(canbus_common::frames::Frame::PendingFirmwareVersion(
                             Type::Data(pf.map(|v| v.0)),
                         )),
                     );
@@ -402,8 +328,8 @@ mod app {
                             // Put the low priority frame back in the transmit queue.
                             tx_queue.pop();
 
-                            let f = PriorityFrame::from_bxcan_frame(pending_frame).unwrap();
-                            enqueue_frame(tx_queue, f);
+                            let f = util::can::PriorityFrame::from_bxcan_frame(pending_frame).unwrap();
+                            util::can::enqueue_frame(tx_queue, f);
                         }
                     },
                     Err(nb::Error::WouldBlock) => break,
@@ -416,166 +342,14 @@ mod app {
         });
     }
 
-    #[task(binds = USB_LP_CAN_RX0, local = [can_rx], shared = [can_tx_queue, led2, dyn_id, fw_upload, pending_fw_version_required, serial])]
+    /*
     fn can_rx0(mut cx: can_rx0::Context) {
-        //let mut dyn_id = cx.shared.dyn_id;
-        let mut can_tx_queue = cx.shared.can_tx_queue;
+        util::can::rx(cx);
+    }*/
 
-        loop {
-            match cx.local.can_rx.receive() {
-                Ok(frame) => {
-                    cx.shared.led2.lock(|_led| {
-                        //led.set_high();
-                    });
-
-                    let id_is_ok = true;
-
-                    match PriorityFrame::from_bxcan_frame(&frame) {
-                        Ok(frame) => match frame.0 {
-                            canbus_common::frames::Frame::Serial(serial) => match serial {
-                                Type::Remote => {
-                                    can_tx_queue.lock(|can_tx_queue| {
-                                        enqueue_frame(
-                                            can_tx_queue,
-                                            PriorityFrame(canbus_common::frames::Frame::Serial(
-                                                Type::Data(DEVICE_SERIAL),
-                                            )),
-                                        );
-                                    });
-
-                                    //hprintln!("send");
-                                }
-                                _ => {}
-                            },
-                            canbus_common::frames::Frame::DynId(value) => {
-                                if value.serial == DEVICE_SERIAL {
-                                    let crc = crc8_fast::calc(
-                                        &value.dyn_id.to_be_bytes(),
-                                        crc8_fast::calc(&value.serial.0, 0),
-                                    );
-
-                                    cx.shared.dyn_id.lock(|v| {
-                                        *v = SubId::from([crc, value.dyn_id]);
-                                    });
-                                }
-                            }
-                            canbus_common::frames::Frame::PendingFirmwareVersion(Type::Remote)
-                                if id_is_ok =>
-                            {
-                                cx.shared.pending_fw_version_required.lock(
-                                    |pending_fw_version_required| {
-                                        *pending_fw_version_required = true;
-                                    },
-                                )
-                            }
-                            canbus_common::frames::Frame::FirmwareUploadPart(value) if id_is_ok => {
-                                /*cx.shared.serial.lock(|serial| {
-                                    write!(serial, "FirmwareUploadPart: {:?}\r\n", value).unwrap();
-                                });*/
-
-                                cx.shared.fw_upload.lock(|fw_upload| {
-                                    match fw_upload.data.put_part(value.data, value.position()) {
-                                        Ok(_) => {
-                                            if fw_upload.data.page_is_ready() && !fw_upload.paused {
-                                                fw_upload.paused = true;
-
-                                                can_tx_queue.lock(|can_tx_queue| {
-                                                    enqueue_frame(
-                                                        can_tx_queue,
-                                                        PriorityFrame(canbus_common::frames::Frame::FirmwareUploadPause(fw_upload.paused)),
-                                                    );
-                                                });
-                                            }
-                                        }
-                                        Err(PutPartError::NotEnoughSpace) => {
-                                            if !fw_upload.paused {
-                                                fw_upload.paused = true;
-
-                                                can_tx_queue.lock(|can_tx_queue| {
-                                                    enqueue_frame(
-                                                        can_tx_queue,
-                                                        PriorityFrame(canbus_common::frames::Frame::FirmwareUploadPause(fw_upload.paused)),
-                                                    );
-                                                });
-                                            }
-                                        }
-                                        Err(PutPartError::LessOfMinPart(p)) | Err(PutPartError::MoreOfMaxPart(p)) => {
-                                            can_tx_queue.lock(|can_tx_queue| {
-                                                enqueue_frame(
-                                                    can_tx_queue,
-                                                    PriorityFrame(canbus_common::frames::Frame::FirmwareUploadPartChangePos(
-                                                        canbus_common::frames::firmware::UploadPartChangePos::new(p).unwrap())
-                                                    ),
-                                                );
-                                            });
-                                        }
-                                    }
-                                });
-                            }
-                            canbus_common::frames::Frame::FirmwareUploadFinished if id_is_ok => {
-                                cx.shared.fw_upload.lock(|fw_upload| {
-                                    while !fw_upload.data.page_is_ready() {
-                                        fw_upload
-                                            .data
-                                            .put_part(
-                                                [0_u8; 5],
-                                                fw_upload.data.loaded_parts_count(),
-                                            )
-                                            .unwrap();
-                                    }
-                                    //hprintln!("qqqqqqqqq");
-
-                                    fw_upload.paused = true;
-                                    fw_upload.finished = true;
-
-                                    can_tx_queue.lock(|can_tx_queue| {
-                                        enqueue_frame(
-                                            can_tx_queue,
-                                            PriorityFrame(
-                                                canbus_common::frames::Frame::FirmwareUploadPause(
-                                                    fw_upload.paused,
-                                                ),
-                                            ),
-                                        );
-                                    });
-                                });
-                            }
-                            canbus_common::frames::Frame::FirmwareStartUpdate if id_is_ok => {
-                                cx.shared.fw_upload.lock(|fw_upload| {
-                                    match fw_upload.has_pending_fw {
-                                        true => {
-                                            cx.shared.serial.lock(|serial| {
-                                                write!(serial, "Reboot to upgrade...\r\n").unwrap();
-                                            });
-                                            cortex_m::peripheral::SCB::sys_reset();
-                                        }
-                                        false => {
-                                            cx.shared.serial.lock(|serial| {
-                                                write!(serial, "Has no pending fw !!!\r\n").unwrap();
-                                            });
-                                        }
-                                    }
-                                });
-                            }
-                            _ => {}
-                        },
-
-                        Err(_) => {
-                            //hprintln!("parse_frame er");
-                        }
-                    }
-                }
-                Err(nb::Error::WouldBlock) => {
-                    //hprintln!("e WouldBlock");
-                    break;
-                }
-                Err(nb::Error::Other(_e)) => {
-                    //hprintln!("rx overrun");
-                    cx.shared.serial.lock(|serial| {
-                        write!(serial, "rx overrun\r\n").unwrap();
-                    });
-                } // Ignore overrun errors.
-            }
-        }
+    use crate::util::can::can_rx0;
+    extern "Rust" {
+        #[task(binds = USB_LP_CAN_RX0, local = [can_rx], shared = [can_tx_queue, led2, dyn_id, fw_upload, pending_fw_version_required, serial])]
+        fn can_rx0(mut cx: can_rx0::Context);
     }
 }
