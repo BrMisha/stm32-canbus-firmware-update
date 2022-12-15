@@ -144,7 +144,7 @@ async fn upload_parts(
                 }
 
                 tokio::time::sleep(Duration::from_millis(match *part % 2 {
-                    0 => 50,
+                    0 => 20,
                     _ => 10,
                 }))
                 .await

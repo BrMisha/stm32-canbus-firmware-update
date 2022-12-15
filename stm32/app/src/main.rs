@@ -84,7 +84,7 @@ mod app {
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         // Setup clocks
         let mut flash = ctx.device.FLASH.constrain();
-        let rcc = ctx.device.RCC.constrain();
+        let rcc: stm32f1xx_hal::rcc::Rcc = ctx.device.RCC.constrain();
 
         // Freeze the configuration of all the clocks in the system and store the frozen frequencies in
         // `clocks`
@@ -96,15 +96,15 @@ mod app {
         let clocks = rcc
             .cfgr
             .use_hse(8.MHz())
-            .sysclk(64.MHz())
-            .hclk(64.MHz())
-            .pclk1(8.MHz())
-            .pclk2(64.MHz())
+            .sysclk(72.MHz())
+            .hclk(72.MHz())
+            .pclk1(36.MHz())
+            .pclk2(72.MHz())
             .freeze(&mut flash.acr);
 
         let mut afio = ctx.device.AFIO.constrain();
 
-        let mono = Systick::new(ctx.core.SYST, 8_000_000);
+        let mono = Systick::new(ctx.core.SYST, clocks.sysclk().raw());
         //let mut delay = delay::Delay::new(ctx.core.SYST, 36_000_000);
 
         let mut gpioa = ctx.device.GPIOA.split();
@@ -136,11 +136,11 @@ mod app {
         let can_tx_pin = gpiob.pb9.into_alternate_push_pull(&mut gpiob.crh);
         can.assign_pins((can_tx_pin, can_rx_pin), &mut afio.mapr);
 
-        // APB1 (PCLK1): 16MHz, Bit rate: 1000kBit/s, Sample Point 87.5%
+        // APB1 (PCLK1): 36MHz, Bit rate: 1000kBit/s, Sample Point 87.5%
         // Value was calculated with http://www.bittiming.can-wiki.info/
         let mut can = bxcan::Can::builder(can)
             //.set_bit_timing(0x001c_0000)
-            .set_bit_timing(0x001c0003)
+            .set_bit_timing(0x001c0011)
             .leave_disabled();
 
         can.modify_filters()
